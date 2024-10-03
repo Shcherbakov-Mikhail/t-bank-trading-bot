@@ -7,11 +7,15 @@ from dotenv import load_dotenv
 import pandas as pd
 from decimal import Decimal
 from lightweight_charts import Chart
+import uuid
 
 from tinkoff.invest import (
     Client,
     CandleInterval,
-    MoneyValue
+    MoneyValue,
+    InstrumentIdType,
+    OrderDirection,
+    OrderType,
 )
 from tinkoff.invest.constants import INVEST_GRPC_API_SANDBOX, INVEST_GRPC_API
 from tinkoff.invest.utils import now, decimal_to_quotation, quotation_to_decimal
@@ -19,11 +23,7 @@ from tinkoff.invest.exceptions import InvestError
 from tinkoff.invest.sandbox.client import SandboxClient
 
 
-
 class Trader():
-    class_code: str
-    figi: str
-    ticker: str
 
     def __init__(self, token, ticker, account_id, sandbox = True):
         self.token = token
@@ -31,9 +31,10 @@ class Trader():
         self.ticker = ticker
         self.target = INVEST_GRPC_API if sandbox else INVEST_GRPC_API_SANDBOX
         self.class_code, self.figi, self.name = self.set_ticker()
+        self.strategy = None
 
     def set_ticker(self):
-        with Client(token=self.token, target=self.target) as client:
+        with SandboxClient(token=self.token, target=self.target) as client:
             for share in list(client.instruments.shares(instrument_status=1).instruments):
                 if share.ticker == self.ticker:
                     return (share.class_code, share.figi, share.name)
@@ -65,6 +66,23 @@ class Trader():
                 client.operations.get_operations(account_id=self.account_id, from_=now()-timedelta(days=n_days), to=now()).operations
             return operatios
         
+    def get_lot_size(self):
+        with SandboxClient(token=self.token, target=self.target) as client:
+            lot_size = client.instruments.share_by(id_type=InstrumentIdType(1), id=self.figi).instrument.lot
+            return lot_size
+
+    def get_last_close_price(self):
+
+        with SandboxClient(token=self.token, target=self.target) as client:
+            close_price_quot = list(client.get_all_candles(
+                    figi=self.figi,
+                    from_=now() - timedelta(days=1),
+                    interval=CandleInterval.CANDLE_INTERVAL_DAY,
+                ))[0].close
+            close_price = float(quotation_to_decimal(close_price_quot))
+                
+        return close_price
+
     def add_money(self, amount, currency = "rub"):
         with SandboxClient(token=self.token, target=self.target) as client:
             amount_quot = decimal_to_quotation(Decimal(amount))
@@ -119,6 +137,104 @@ class Trader():
             chart.set(candles)
             chart.show(block=True)
 
+    def read_strategy(self, filename, sheet_name):
+        self.strategy = pd.read_excel(
+            filename, 
+            sheet_name=sheet_name, 
+            header=0, 
+            dtype={
+                'Ticker': str,
+                'Percentage': float,
+                'Lots': int
+                }
+            )
+        
+        self.strategy = self.strategy[self.strategy['Ticker']==self.ticker]
+
+    def show_strategy(self):
+        print("Strategy:")
+        print(self.strategy)
+        print()
+        print("-"*60)
+        print()
+
+    def place_limit_orders(self):
+
+        lots = 1 # from strat
+        percentage = 0.011 # from strat
+        close_price = Decimal(self.get_last_close_price() * (1 + percentage))
+
+        order_type = OrderType.ORDER_TYPE_LIMIT
+        order_direction = OrderDirection.ORDER_DIRECTION_BUY if percentage < 0 else OrderDirection.ORDER_DIRECTION_SELL
+        order_imp_id = str(uuid.uuid4())
+
+        with SandboxClient(token=self.token, target=self.target) as client:
+            min_price_increment = client.instruments.get_instrument_by(
+            id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI, id=self.figi
+            ).instrument.min_price_increment
+
+            number_digits_after_point = 9 - len(str(min_price_increment.nano)) + 1
+            min_price_increment = quotation_to_decimal(min_price_increment)
+
+            exec_price = (
+                round(close_price / min_price_increment) * min_price_increment
+            )
+            print(
+                f"Sending limit order with execution price = "
+                f"[{exec_price:.{number_digits_after_point}f}] "
+                # f"divisible to min price increment [{min_price_increment}]"
+            )
+
+            try:
+                order_response = client.orders.post_order(
+                    figi=self.figi,
+                    quantity=lots,
+                    price=decimal_to_quotation(Decimal(exec_price)),
+                    direction=order_direction,
+                    account_id=self.account_id,
+                    order_type=order_type,
+                    order_id=order_imp_id, # for uniqueness
+                    instrument_id=self.figi
+                )
+
+                order_status = order_response.execution_report_status.value
+                order_id = order_response.order_id
+
+                print(f'{order_id=}')
+                print(f'{order_status=}')
+
+                with open("orders.txt", "a") as file:
+                    file.write(f'{self.ticker} {exec_price} {lots} {order_id} {order_status}\n')
+        
+            except InvestError as error:
+                print("Posting limit order failed. Exception: %s", error)
+
+    def show_all_orders(self):
+        print()
+        print("-"*60)
+        with open("orders.txt", "r") as file:
+            data = file.readlines()
+            for order in data:
+                print(order)
+        print("-"*60)
+        print()
+        
+    def get_order_state(self, order_id):
+        with SandboxClient(token=self.token, target=self.target) as client:
+            print(client.orders.get_order_state(account_id=self.account_id, order_id=order_id))
+    
+    def cancel_all_orders(self):
+        new_data = ""
+        with SandboxClient(token=self.token, target=self.target) as client:
+            with open("orders.txt", "r") as file:
+                data = file.readlines()
+                for order in data:
+                    order_id = order.split()[-1]
+                    # client.sandbox.cancel_sandbox_order(account_id=self.account_id,order_id = order_id)
+        
+        with open('orders.txt', 'w') as file:
+            file.write(new_data)
+
     def info(self, show_operations):
 
         print()
@@ -146,12 +262,14 @@ class Trader():
 
         print()
         print("-"*60)
+        print()
 
         if show_operations:
             print("\n5. Weekly Operations:")
             print(f'\t{self.get_operations(n_days=7)[0]}')
             print()
             print("-"*60)
+            print()
 
     def __repr__(self):
         return f'\nTrading: "{self.name}" ({self.ticker})\n' 
@@ -163,10 +281,18 @@ if __name__ == '__main__':
     TOKEN = os.getenv('TINKOFF_TOKEN_SANDBOX')
     ACCOUNT_ID = os.getenv('TINKOFF_SANDBOX_ACCOUNT')
 
-    trader = Trader(token=TOKEN, ticker="GAZP", account_id=ACCOUNT_ID, sandbox=True)
+    trader = Trader(token=TOKEN, ticker="SBER", account_id=ACCOUNT_ID, sandbox=True)
+    trader.read_strategy(filename="strategy.xlsx", sheet_name="strategy")
 
-    trader.info(show_operations=False)
+    # trader.info(show_operations=False)
+    # trader.show_strategy()
 
+    trader.place_limit_orders()
+    trader.show_all_orders()
+    trader.cancel_all_orders()
+    trader.show_all_orders()
+    
+    
 
 
 
