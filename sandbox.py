@@ -3,7 +3,7 @@ import datetime
 import asyncio
 import time
 from datetime import timedelta, date
-from dotenv import load_dotenv, dotenv_values
+from dotenv import dotenv_values
 import pandas as pd
 from decimal import Decimal
 from lightweight_charts import Chart
@@ -19,7 +19,8 @@ from tinkoff.invest import (
     InfoInstrument,
     CandleInstrument,
     SubscriptionInterval,
-    AsyncClient
+    AsyncClient,
+    GetMySubscriptions
 )
 from tinkoff.invest.constants import INVEST_GRPC_API_SANDBOX, INVEST_GRPC_API
 from tinkoff.invest.utils import now, decimal_to_quotation, quotation_to_decimal
@@ -27,7 +28,7 @@ from tinkoff.invest.exceptions import InvestError
 from tinkoff.invest.sandbox.client import SandboxClient
 
 
-class Trader():
+class Trader:
 
     def __init__(self, token, account_id, sandbox = True):
         self.token = token
@@ -36,85 +37,85 @@ class Trader():
         self.strategy = None
         self.client = SandboxClient(token=self.token, target=self.target).__enter__()
         
-    def get_trading_status(self, figi): 
-        return self.client.market_data.get_trading_status(figi=figi).market_order_available_flag
+    # def get_trading_status(self, figi): 
+    #     return self.client.market_data.get_trading_status(figi=figi)
         
-    def get_portfolio_amount(self):
-        return float(quotation_to_decimal(self.client.operations.get_portfolio(account_id=self.account_id).total_amount_portfolio))
+    # def get_portfolio_amount(self):
+    #     return float(quotation_to_decimal(self.client.operations.get_portfolio(account_id=self.account_id).total_amount_portfolio))
         
-    def get_positions(self):
-        return self.client.operations.get_positions(account_id=self.account_id)
+    # def get_positions(self):
+    #     return self.client.operations.get_positions(account_id=self.account_id)
                 
-    def get_withdraw_limit(self):
-        return self.client.operations.get_withdraw_limits(account_id=self.account_id).money
+    # def get_withdraw_limit(self):
+    #     return self.client.operations.get_withdraw_limits(account_id=self.account_id).money
         
-    def get_operations(self, n_days):
-        operatios = \
-            self.client.operations.get_operations(account_id=self.account_id, from_=now()-timedelta(days=n_days), to=now()).operations
-        return operatios
+    # def get_operations(self, n_days):
+    #     operatios = \
+    #         self.client.operations.get_operations(account_id=self.account_id, from_=now()-timedelta(days=n_days), to=now()).operations
+    #     return operatios
         
-    def get_lot_size(self, figi):
-        return self.client.instruments.share_by(id_type=InstrumentIdType(1), id=figi).instrument.lot
+    # def get_lot_size(self, figi):
+    #     return self.client.instruments.share_by(id_type=InstrumentIdType(1), id=figi).instrument.lot
 
-    def get_last_close_price(self, figi):
-        close_price_quot = list(self.client.get_all_candles(
-            figi=figi,
-            from_=now() - timedelta(days=1),
-            interval=CandleInterval.CANDLE_INTERVAL_DAY,
-        ))[0].close
-        close_price = float(quotation_to_decimal(close_price_quot))    
-        return close_price
+    # def get_last_close_price(self, figi):
+    #     close_price_quot = list(self.client.get_all_candles(
+    #         figi=figi,
+    #         from_=now() - timedelta(days=1),
+    #         interval=CandleInterval.CANDLE_INTERVAL_DAY,
+    #     ))[0].close
+    #     close_price = float(quotation_to_decimal(close_price_quot))    
+    #     return close_price
 
-    def get_orders(self):
-        return self.client.orders.get_orders(account_id=self.account_id).orders
+    # def get_orders(self):
+    #     return self.client.orders.get_orders(account_id=self.account_id).orders
 
-    def load_candles(self, ticker, window_size = 30, interval = CandleInterval.CANDLE_INTERVAL_DAY):
+    # def load_candles(self, ticker, window_size = 30, interval = CandleInterval.CANDLE_INTERVAL_DAY):
 
-        _dict = {
-            'date': [], 
-            'open': [], 
-            'high': [],
-            'low': [], 
-            'close': [],
-            'volume': []
-        } 
+    #     _dict = {
+    #         'date': [], 
+    #         'open': [], 
+    #         'high': [],
+    #         'low': [], 
+    #         'close': [],
+    #         'volume': []
+    #     } 
 
-        figi = self.get_ticker_figi(ticker)
+    #     figi = self.get_ticker_figi(ticker)
 
-        for candle in list(self.client.get_all_candles(
-            figi=figi,
-            from_=now() - timedelta(days=window_size),
-            interval=interval,
-        )):
-            _dict["date"].append(date(candle.time.year, candle.time.month, candle.time.day))
-            _dict["volume"].append(candle.volume)
-            _dict["open"].append(float(quotation_to_decimal(candle.open)))
-            _dict["high"].append(float(quotation_to_decimal(candle.high)))
-            _dict["low"].append(float(quotation_to_decimal(candle.low)))
-            _dict["close"].append(float(quotation_to_decimal(candle.close)))
+    #     for candle in list(self.client.get_all_candles(
+    #         figi=figi,
+    #         from_=now() - timedelta(days=window_size),
+    #         interval=interval,
+    #     )):
+    #         _dict["date"].append(date(candle.time.year, candle.time.month, candle.time.day))
+    #         _dict["volume"].append(candle.volume)
+    #         _dict["open"].append(float(quotation_to_decimal(candle.open)))
+    #         _dict["high"].append(float(quotation_to_decimal(candle.high)))
+    #         _dict["low"].append(float(quotation_to_decimal(candle.low)))
+    #         _dict["close"].append(float(quotation_to_decimal(candle.close)))
                 
-        return pd.DataFrame(_dict)  
+    #     return pd.DataFrame(_dict)  
 
-    def plot_candles(self, ticker, candles: pd.DataFrame):
+    # def plot_candles(self, ticker, candles: pd.DataFrame):
 
-            chart = Chart()
-            chart.layout(background_color='#1E2C39', text_color='#9babba', font_size=12,
-                        font_family='Helvetica')
-            chart.grid(color='#233240')
-            chart.candle_style(up_color='#14835C', down_color='#9D2B38',
-                            border_up_color='#0ad18b', border_down_color='#d62035',
-                            wick_up_color='#0ad18b', wick_down_color='#d62035')
-            chart.volume_config(up_color='#185c4d', down_color='#652b38')
-            chart.crosshair(mode='normal', vert_width=1, vert_color='#9babba', vert_style='dotted',
-                            horz_color='#9babba', horz_width=1, horz_style='dotted')
-            chart.legend(visible=True, color_based_on_candle=True, font_size=16)
+    #         chart = Chart()
+    #         chart.layout(background_color='#1E2C39', text_color='#9babba', font_size=12,
+    #                     font_family='Helvetica')
+    #         chart.grid(color='#233240')
+    #         chart.candle_style(up_color='#14835C', down_color='#9D2B38',
+    #                         border_up_color='#0ad18b', border_down_color='#d62035',
+    #                         wick_up_color='#0ad18b', wick_down_color='#d62035')
+    #         chart.volume_config(up_color='#185c4d', down_color='#652b38')
+    #         chart.crosshair(mode='normal', vert_width=1, vert_color='#9babba', vert_style='dotted',
+    #                         horz_color='#9babba', horz_width=1, horz_style='dotted')
+    #         chart.legend(visible=True, color_based_on_candle=True, font_size=16)
             
-            chart.topbar.textbox('symbol', ticker)
+    #         chart.topbar.textbox('symbol', ticker)
 
-            chart.set(candles)
-            chart.show(block=True)
+    #         chart.set(candles)
+    #         chart.show(block=True)
 
-    def read_strategy(self, filename, sheet_name):
+    def read_strategy(self, filename, sheet_name): # moving to Strategy class
         self.strategy = pd.read_excel(
             filename, 
             sheet_name=sheet_name, 
@@ -139,20 +140,20 @@ class Trader():
 
         self.strategy['Price'] = prices
                 
-    def show_strategy(self):
+    def show_strategy(self): # moving to Strategy class
         print("Strategy:")
         print(self.strategy)
         print()
         print("-"*60)
         print()
 
-    def get_ticker_figi(self, ticker):
-        for share in list(self.client.instruments.shares(instrument_status=1).instruments):
-            if share.ticker == ticker:
-                return share.figi
-        raise ValueError('Ticker not found!')
+    # def get_ticker_figi(self, ticker):
+    #     for share in list(self.client.instruments.shares(instrument_status=1).instruments):
+    #         if share.ticker == ticker:
+    #             return share.figi
+    #     raise ValueError('Ticker not found!')
 
-    def place_limit_orders(self):
+    def place_limit_orders(self): # moving to Strategy class
 
         with open("orders.txt", "a") as file:
         
@@ -204,7 +205,7 @@ class Trader():
                     print("Failed\n")
                     print(f"Failed ({error})\n")
 
-    def show_all_orders(self):
+    def show_all_orders(self): # moving to SQL class
         print()
         print("All Orders:")
         with open("orders.txt", "r") as file:
@@ -214,13 +215,13 @@ class Trader():
                 print(order)
         print()
 
-    def ticker_by_figi(self, figi):
-        return self.client.instruments.find_instrument(query=figi).instruments[0].ticker
+    # def ticker_by_figi(self, figi):
+    #     return self.client.instruments.find_instrument(query=figi).instruments[0].ticker
 
-    def get_order_state(self, order_id):
-        print(self.client.orders.get_order_state(account_id=self.account_id, order_id=order_id))
+    # def get_order_state(self, order_id):
+    #     print(self.client.orders.get_order_state(account_id=self.account_id, order_id=order_id))
     
-    def cancel_active_orders(self):
+    def cancel_active_orders(self): # moving to Client class (but set up SQL first)
         new_data = ""
         with open("orders.txt", "r") as file:
             data = file.readlines()
@@ -239,58 +240,56 @@ class Trader():
         with open('orders.txt', 'w') as file:
             file.write(new_data)
 
-    def positions_info(self):
+    # def positions_info(self):
 
-        print("• Positions:")
-        positions = self.get_positions()
+    #     print("• Positions:")
+    #     positions = self.get_positions()
 
-        print(f'\t- Money')
-        print(f'\t\t{float(quotation_to_decimal(positions.money[0])):.2f}') # currency positions list
+    #     print(f'\t- Money')
+    #     print(f'\t\t{float(quotation_to_decimal(positions.money[0])):.2f}') # currency positions list
 
-        print(f'\t- Blocked')
-        print(f'\t\t{float(quotation_to_decimal(positions.blocked[0]))}') # blocked currency positions list
+    #     print(f'\t- Blocked')
+    #     print(f'\t\t{float(quotation_to_decimal(positions.blocked[0]))}') # blocked currency positions list
 
-        print(f'\t- Securities')
-        for sec in positions.securities:
-            sec_name = self.ticker_by_figi(sec.figi)
-            print(f'\t\t‣ Ticker: {sec_name} | Blocked: {sec.blocked} | Balance: {sec.balance} | Type: {sec.instrument_type}')
+    #     print(f'\t- Securities')
+    #     for sec in positions.securities:
+    #         sec_name = self.ticker_by_figi(sec.figi)
+    #         print(f'\t\t‣ Ticker: {sec_name} | Blocked: {sec.blocked} | Balance: {sec.balance} | Type: {sec.instrument_type}')
     
-    def active_orders_info(self):
+    # def active_orders_info(self):
 
-        with open("orders.txt", "r") as file:
-            n_total = len(file.readlines())
+    #     with open("orders.txt", "r") as file:
+    #         n_total = len(file.readlines())
 
-        n_active = len(self.get_orders())
+    #     n_active = len(self.get_orders())
 
-        print(f"\n• Active Orders: {n_active}/{n_total}")
-        if len(self.get_orders()) == 0:
-            print("\tNone")
-        else:
-            for order in self.get_orders():
-                print(f'\tType: {"long" if order.direction == 2 else "short"}'
-                    f' | Ticker: {self.ticker_by_figi(order.figi)}'
-                    f' | Price: {float(quotation_to_decimal(order.initial_security_price)):.2f}'
-                    f' | Lots: {order.lots_requested}')
+    #     print(f"\n• Active Orders: {n_active}/{n_total}")
+    #     if len(self.get_orders()) == 0:
+    #         print("\tNone")
+    #     else:
+    #         for order in self.get_orders():
+    #             print(f'\tType: {"long" if order.direction == 2 else "short"}'
+    #                 f' | Ticker: {self.ticker_by_figi(order.figi)}'
+    #                 f' | Price: {float(quotation_to_decimal(order.initial_security_price)):.2f}'
+    #                 f' | Lots: {order.lots_requested}')
 
-    def account_info(self):
+    # def account_info(self, show_active_orders=True):
 
-        print()
-        print("-"*60)
-        print(f'Account Information')
-        print("-"*60)
+    #     print()
+    #     print("-"*60)
+    #     print(f'Account Information')
+    #     print("-"*60)
 
-        self.positions_info()
-        self.active_orders_info()
+    #     self.positions_info()
+    #     if show_active_orders:
+    #         self.active_orders_info()
 
-        print()
-        print("-"*60)
-        print("-"*60)
-        print()
+    #     print()
+    #     print("-"*60)
+    #     print("-"*60)
+    #     print()
 
-    def show_subscriptions(self):
-        pass
-
-    def run_feed(self):
+    def run_feed(self): # moving to Strategy class ?or main file?
 
         while True:
             try:
@@ -317,24 +316,24 @@ class Trader():
                 # print(f'Caught exception: \n{error}')
                 continue
 
-    def open_account(self):
-        self.account_id = self.client.sandbox.open_sandbox_account().account_id
-        print(self.account_id)
+    # def open_account(self):
+    #     self.account_id = self.client.sandbox.open_sandbox_account().account_id
+    #     print(self.account_id)
 
-    def close_account(self):
-        self.client.sandbox.close_sandbox_account(account_id=self.account_id)
-        open("orders.txt", "w").close()
+    # def close_account(self):
+    #     self.client.sandbox.close_sandbox_account(account_id=self.account_id)
+    #     open("orders.txt", "w").close()
 
-    def add_money(self, amount, currency = "rub"):
-        try:
-            amount_quot = decimal_to_quotation(Decimal(amount))
-            amount_mv = MoneyValue(units=amount_quot.units, nano=amount_quot.nano, currency=currency)
-            balance_quot = self.client.sandbox.sandbox_pay_in(account_id=self.account_id, amount=amount_mv).balance
-            balance = float(quotation_to_decimal(balance_quot))
-            print(f'[+] Added: {amount}')
-            print(f'[=] Current balance: {balance}')
-        except InvestError as error:
-            print(f"\nPay in [{amount}] failed. \nException: {error}\n")
+    # def add_money(self, amount, currency = "rub"):
+    #     try:
+    #         amount_quot = decimal_to_quotation(Decimal(amount))
+    #         amount_mv = MoneyValue(units=amount_quot.units, nano=amount_quot.nano, currency=currency)
+    #         balance_quot = self.client.sandbox.sandbox_pay_in(account_id=self.account_id, amount=amount_mv).balance
+    #         balance = float(quotation_to_decimal(balance_quot))
+    #         print(f'[+] Added: {amount}')
+    #         print(f'[=] Current balance: {balance}')
+    #     except InvestError as error:
+    #         print(f"\nPay in [{amount}] failed. \nException: {error}\n")
 
 
 if __name__ == '__main__':
@@ -345,17 +344,13 @@ if __name__ == '__main__':
 
     trader = Trader(token=TOKEN, account_id=ACCOUNT_ID, sandbox=True)
     
-    trader.account_info()
+    trader.account_info(show_active_orders=False)
 
-    # trader.read_strategy(filename="strategy.xlsx", sheet_name="strategy")
-    # trader.show_strategy()
+    trader.read_strategy(filename="strategy.xlsx", sheet_name="strategy")
+    trader.show_strategy()
 
     # trader.place_limit_orders()
     # trader.run_feed()
-
-    # trader.show_all_orders()
-
-    # trader.account_info()
 
     # trader.cancel_active_orders()
     
