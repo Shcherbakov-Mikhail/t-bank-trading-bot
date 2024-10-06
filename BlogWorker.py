@@ -6,8 +6,8 @@ class BlogWorker:
     Class is represent worker (coroutine) for asyncio task.
     Checks available messages in queue and sends they asynchronously.
     """
-    def __init__(self, bot_token, chat_id, messages_queue: asyncio.Queue):
-        self.__messages_queue = messages_queue
+    def __init__(self, bot_token, chat_id, messages_queue):
+        self.__messages_queue : asyncio.Queue = messages_queue
         self.__tg_status = False
         self.__init_tg(bot_token, chat_id)
 
@@ -24,6 +24,9 @@ class BlogWorker:
         while True:
             try:
                 message = await self.__messages_queue.get()
+                if message == "close session":
+                    await self.__telegram_service.close_bot_session()
+                    break
                 print(f"Get message form queue (size: {self.__messages_queue.qsize()}): {message}")
 
                 if self.__tg_status:

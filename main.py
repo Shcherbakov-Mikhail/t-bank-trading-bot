@@ -2,18 +2,31 @@ import asyncio
 from dotenv import dotenv_values
 from TBankClient import TBankClient
 from SimpleStrategy import SimpleStrategy
+from BlogWorker import BlogWorker
+from Blogger import Blogger
 
 async def run():
 
     config = dotenv_values(".env")
     TOKEN = config['TINKOFF_TOKEN_SANDBOX']
     APP_NAME = config['APP_NAME']
+    BOT_TOKEN = config['BOT_TOKEN']
+    CHAT_ID = config['CHAT_ID']
+
+    messages_queue = asyncio.Queue()
+    blogger = Blogger(messages_queue=messages_queue)
 
     client = TBankClient(token=TOKEN, app_name=APP_NAME, sandbox=True)
-    await client.ainit()
+    blog_worker = BlogWorker(bot_token=BOT_TOKEN, chat_id=CHAT_ID, messages_queue=messages_queue)
+    strategy = SimpleStrategy(client=client, blogger=blogger)
 
-    strategy = SimpleStrategy(client)
-    await strategy.start()
+    client_task = asyncio.create_task(client.ainit())
+    blog_task = asyncio.create_task(blog_worker.worker())
+    strategy_task = asyncio.create_task(strategy.start())
+
+    await client_task
+    await blog_task
+    await strategy_task
 
 
 if __name__ == "__main__":

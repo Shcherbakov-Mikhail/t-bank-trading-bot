@@ -1,32 +1,32 @@
-from SQLClient import OrderSQLiteClient, SimpleStrategySQLiteClient
-from tinkoff.invest.exceptions import InvestError
 import asyncio
-from TBankClient import TBankClient
 import time, sys
-from handler import OrderHandler
 from uuid import uuid4
 from decimal import Decimal
-from datetime import timedelta
-from BlogWorker import BlogWorker
+
+from TBankClient import TBankClient
+from SQLClient import SimpleStrategySQLiteClient
+from handler import OrderHandler
+from Blogger import Blogger
 
 from tinkoff.invest import (
     InstrumentIdType,
     OrderDirection,
-    OrderType,
-    MoneyValue
+    OrderType
 )
+from tinkoff.invest.utils import decimal_to_quotation, quotation_to_decimal
+from tinkoff.invest.exceptions import InvestError
 
-from tinkoff.invest.utils import now, decimal_to_quotation, quotation_to_decimal
 
 class SimpleStrategy:
 
-    def __init__(self, client):
+    def __init__(self, client, blogger):
         self.client : TBankClient = client
         self.check_interval = 5
         self.token = None
         self.account_id = None
         self.filename = "strategy.xlsx"
         self.sheet_name = "strategy"
+        self.blogger  : Blogger = blogger
         self.orders_handler = OrderHandler(client)
         self.sql_strategy_client = SimpleStrategySQLiteClient()
 
@@ -107,21 +107,29 @@ class SimpleStrategy:
 
     async def main_cycle(self):
 
+        self.blogger.start_trading_message()
+
         print(f"Paying in...")
         await self.client.add_money_to_sandbox_account(self.account_id, amount=5000000)
 
         print(f"Reading data from excel...")
         self.sql_strategy_client.add_orders_from_excel(self.filename, self.sheet_name)
-        print(f'Initial orders:\n\t{self.sql_strategy_client.get_strategy()}')
 
-        print(f"Posting initial orders...")
+        # print(f'Initial orders:\n\t{self.sql_strategy_client.get_strategy()}')
+        self.blogger.initial_orders_message(self.sql_strategy_client.get_strategy())
 
-        tasks = [asyncio.create_task(self.handle_strat_order(order))
-                 for order in self.sql_strategy_client.get_strategy()
-                ]
+        # print(f"Posting initial orders...")
+
+        # tasks = [asyncio.create_task(self.handle_strat_order(order))
+        #          for order in self.sql_strategy_client.get_strategy()
+        #         ]
                 
-        tasks.append(asyncio.create_task(self.print_orders()))
-        await asyncio.wait(tasks)
+        # tasks.append(asyncio.create_task(self.print_orders()))
+        # tasks.append()
+        # await asyncio.wait(tasks)
+
+        self.blogger.close_session_message()
+        return
 
         
     async def start(self):
