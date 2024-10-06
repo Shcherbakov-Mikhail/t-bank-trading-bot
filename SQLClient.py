@@ -61,7 +61,7 @@ class SQLiteClient:
     
 
 class OrderSQLiteClient:
-    def __init__(self, db_name: str):
+    def __init__(self, db_name = 'trader_stats.db'):
         self.db_client = SQLiteClient(db_name)
         self.db_client.connect()
         self._create_table()
@@ -77,6 +77,13 @@ class OrderSQLiteClient:
                 quantity INTEGER,
                 status TEXT
             )
+            """
+        )
+
+    def _drop_table(self):
+        self.db_client.execute(
+            """
+            DROP TABLE IF EXISTS orders
             """
         )
 
@@ -105,13 +112,12 @@ class OrderSQLiteClient:
 
 
 class SimpleStrategySQLiteClient:
-    def __init__(self, db_name: str):
+    def __init__(self, db_name = 'trader_stats.db'):
         self.db_client = SQLiteClient(db_name)
         self.db_client.connect()
         self._create_table()
 
     def _create_table(self):
-
         self.db_client.execute(
             """
             CREATE TABLE IF NOT EXISTS simple_strategy (
@@ -119,6 +125,13 @@ class SimpleStrategySQLiteClient:
                 percentage REAL,
                 quantity INTEGER
             )
+            """
+        )
+
+    def _drop_table(self):
+        self.db_client.execute(
+            """
+            DROP TABLE IF EXISTS simple_strategy
             """
         )
 
