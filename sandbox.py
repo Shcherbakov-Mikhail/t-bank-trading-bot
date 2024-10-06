@@ -30,12 +30,12 @@ from tinkoff.invest.sandbox.client import SandboxClient
 
 class Trader:
 
-    def __init__(self, token, account_id, sandbox = True):
-        self.token = token
-        self.account_id = account_id
-        self.target = INVEST_GRPC_API if sandbox else INVEST_GRPC_API_SANDBOX
-        self.strategy = None
-        self.client = SandboxClient(token=self.token, target=self.target).__enter__()
+    # def __init__(self, token, account_id, sandbox = True):
+    #     self.token = token
+    #     self.account_id = account_id
+    #     self.target = INVEST_GRPC_API if sandbox else INVEST_GRPC_API_SANDBOX
+    #     self.strategy = None
+    #     self.client = SandboxClient(token=self.token, target=self.target).__enter__()
         
     # def get_trading_status(self, figi): 
     #     return self.client.market_data.get_trading_status(figi=figi)
@@ -115,37 +115,37 @@ class Trader:
     #         chart.set(candles)
     #         chart.show(block=True)
 
-    def read_strategy(self, filename, sheet_name): # moving to Strategy class
-        self.strategy = pd.read_excel(
-            filename, 
-            sheet_name=sheet_name, 
-            header=0, 
-            dtype={
-                'Ticker': str,
-                'Percentage': float,
-                'Lots': int
-                }
-            )
+    # def read_strategy(self, filename, sheet_name): 
+    #     self.strategy = pd.read_excel(
+    #         filename, 
+    #         sheet_name=sheet_name, 
+    #         header=0, 
+    #         dtype={
+    #             'Ticker': str,
+    #             'Percentage': float,
+    #             'Lots': int
+    #             }
+    #         )
         
-        prices = []
-        last_ticker = ''
+    #     prices = []
+    #     last_ticker = ''
         
-        for i in range(self.strategy.shape[0]):
-            ticker = self.strategy.iloc[i][0]
-            if ticker != last_ticker:
-                figi = self.get_ticker_figi(ticker)
-                close = self.get_last_close_price(figi)
-                last_ticker = ticker
-            prices.append(close * (1 + self.strategy.iloc[i][1]))
+    #     for i in range(self.strategy.shape[0]):
+    #         ticker = self.strategy.iloc[i][0]
+    #         if ticker != last_ticker:
+    #             figi = self.get_ticker_figi(ticker)
+    #             close = self.get_last_close_price(figi)
+    #             last_ticker = ticker
+    #         prices.append(close * (1 + self.strategy.iloc[i][1]))
 
-        self.strategy['Price'] = prices
+    #     self.strategy['Price'] = prices
                 
-    def show_strategy(self): # moving to Strategy class
-        print("Strategy:")
-        print(self.strategy)
-        print()
-        print("-"*60)
-        print()
+    # def show_strategy(self): # moving to Strategy class
+    #     print("Strategy:")
+    #     print(self.strategy)
+    #     print()
+    #     print("-"*60)
+    #     print()
 
     # def get_ticker_figi(self, ticker):
     #     for share in list(self.client.instruments.shares(instrument_status=1).instruments):
@@ -153,67 +153,67 @@ class Trader:
     #             return share.figi
     #     raise ValueError('Ticker not found!')
 
-    def place_limit_orders(self): # moving to Strategy class
+    # def place_limit_orders(self): # moving to Strategy class
 
-        with open("orders.txt", "a") as file:
+    #     with open("orders.txt", "a") as file:
         
-            for i in range(self.strategy.shape[0]):
+    #         for i in range(self.strategy.shape[0]):
 
-                ticker = self.strategy.iloc[i][0]
-                percentage = self.strategy.iloc[i][1]
-                lots = self.strategy.iloc[i][2]
+    #             ticker = self.strategy.iloc[i][0]
+    #             percentage = self.strategy.iloc[i][1]
+    #             lots = self.strategy.iloc[i][2]
 
-                figi = self.get_ticker_figi(ticker)
-                exec_price = Decimal(self.get_last_close_price(figi) * (1 + percentage))
+    #             figi = self.get_ticker_figi(ticker)
+    #             exec_price = Decimal(self.get_last_close_price(figi) * (1 + percentage))
 
-                order_type = OrderType.ORDER_TYPE_LIMIT
-                order_direction = OrderDirection.ORDER_DIRECTION_BUY if percentage < 0 else OrderDirection.ORDER_DIRECTION_SELL
-                order_direction_str = "Short" if percentage < 0 else "Long"
-                order_imp_id = str(uuid.uuid4())
+    #             order_type = OrderType.ORDER_TYPE_LIMIT
+    #             order_direction = OrderDirection.ORDER_DIRECTION_BUY if percentage < 0 else OrderDirection.ORDER_DIRECTION_SELL
+    #             order_direction_str = "Short" if percentage < 0 else "Long"
+    #             order_imp_id = str(uuid.uuid4())
 
                 
-                min_price_increment = self.client.instruments.get_instrument_by(
-                    id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI, 
-                    id=figi
-                ).instrument.min_price_increment
+    #             min_price_increment = self.client.instruments.get_instrument_by(
+    #                 id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI, 
+    #                 id=figi
+    #             ).instrument.min_price_increment
 
-                number_digits_after_point = 9 - len(str(min_price_increment.nano)) + 1
-                min_price_increment = quotation_to_decimal(min_price_increment)
-                exec_price = (round(exec_price / min_price_increment) * min_price_increment)
+    #             number_digits_after_point = 9 - len(str(min_price_increment.nano)) + 1
+    #             min_price_increment = quotation_to_decimal(min_price_increment)
+    #             exec_price = (round(exec_price / min_price_increment) * min_price_increment)
 
-                # print(f'Placing order #{i}: {ticker} | {exec_price:.2f} | {lots}', end=" <--- ")
+    #             # print(f'Placing order #{i}: {ticker} | {exec_price:.2f} | {lots}', end=" <--- ")
                     
-                try:
-                    order_response = self.client.orders.post_order(
-                        figi=figi,
-                        quantity=lots,
-                        price=decimal_to_quotation(Decimal(exec_price)),
-                        direction=order_direction,
-                        account_id=self.account_id,
-                        order_type=order_type,
-                        order_id=order_imp_id,
-                        instrument_id=figi
-                    )
+    #             try:
+    #                 order_response = self.client.orders.post_order(
+    #                     figi=figi,
+    #                     quantity=lots,
+    #                     price=decimal_to_quotation(Decimal(exec_price)),
+    #                     direction=order_direction,
+    #                     account_id=self.account_id,
+    #                     order_type=order_type,
+    #                     order_id=order_imp_id,
+    #                     instrument_id=figi
+    #                 )
 
-                    order_status = order_response.execution_report_status.value
-                    order_id = order_response.order_id
+    #                 order_status = order_response.execution_report_status.value
+    #                 order_id = order_response.order_id
 
-                    file.write(f'{ticker} {order_direction_str} {exec_price} {lots} {order_id} {order_status}\n')
-                    print("Done")
+    #                 file.write(f'{ticker} {order_direction_str} {exec_price} {lots} {order_id} {order_status}\n')
+    #                 print("Done")
                 
-                except InvestError as error:
-                    print("Failed\n")
-                    print(f"Failed ({error})\n")
+    #             except InvestError as error:
+    #                 print("Failed\n")
+    #                 print(f"Failed ({error})\n")
 
-    def show_all_orders(self): # moving to SQL class
-        print()
-        print("All Orders:")
-        with open("orders.txt", "r") as file:
-            data = file.readlines()
-            for order in data:
-                print("\t• ", end="")
-                print(order)
-        print()
+    # def show_all_orders(self):
+    #     print()
+    #     print("All Orders:")
+    #     with open("orders.txt", "r") as file:
+    #         data = file.readlines()
+    #         for order in data:
+    #             print("\t• ", end="")
+    #             print(order)
+    #     print()
 
     # def ticker_by_figi(self, figi):
     #     return self.client.instruments.find_instrument(query=figi).instruments[0].ticker
@@ -221,7 +221,7 @@ class Trader:
     # def get_order_state(self, order_id):
     #     print(self.client.orders.get_order_state(account_id=self.account_id, order_id=order_id))
     
-    def cancel_active_orders(self): # moving to Client class (but set up SQL first)
+    def cancel_active_orders(self): # moving to Client class 
         new_data = ""
         with open("orders.txt", "r") as file:
             data = file.readlines()
@@ -289,32 +289,32 @@ class Trader:
     #     print("-"*60)
     #     print()
 
-    def run_feed(self): # moving to Strategy class ?or main file?
+    # def run_feed(self): # moving to Strategy class ?or main file?
 
-        while True:
-            try:
-                trades_stream = self.client.orders_stream.trades_stream(accounts=[self.account_id])
-                print("\nListening for order updates...\n")
+    #     while True:
+    #         try:
+    #             trades_stream = self.client.orders_stream.trades_stream(accounts=[self.account_id])
+    #             print("\nListening for order updates...\n")
 
-                for response in trades_stream:
-                    if response.order_trades:
-                        ticker = self.ticker_by_figi(response.order_trades.figi)
-                        direction = "buy" if response.order_trades.direction == 2 else "sell"
-                        order_id = response.order_trades.order_id
-                        price = float(quotation_to_decimal())
-                        lots = response.order_trades.trades[0].quantity
-                        print(f'Ticker: {ticker} | Direction: {direction} | Price: {price} | Lots: {lots}\n'
-                              f'Order_id: {order_id}\n')
+    #             for response in trades_stream:
+    #                 if response.order_trades:
+    #                     ticker = self.ticker_by_figi(response.order_trades.figi)
+    #                     direction = "buy" if response.order_trades.direction == 2 else "sell"
+    #                     order_id = response.order_trades.order_id
+    #                     price = float(quotation_to_decimal())
+    #                     lots = response.order_trades.trades[0].quantity
+    #                     print(f'Ticker: {ticker} | Direction: {direction} | Price: {price} | Lots: {lots}\n'
+    #                           f'Order_id: {order_id}\n')
 
-                        # TODO: change order status in orders.txt
+    #                     # TODO: change order status in orders.txt
 
-                    elif response.ping:
-                        print("Ping message. Stream is alive!\n")
+    #                 elif response.ping:
+    #                     print("Ping message. Stream is alive!\n")
                             
-            except InvestError as error:
-                print("Re-running stream!")
-                # print(f'Caught exception: \n{error}')
-                continue
+    #         except InvestError as error:
+    #             print("Re-running stream!")
+    #             # print(f'Caught exception: \n{error}')
+    #             continue
 
     # def open_account(self):
     #     self.account_id = self.client.sandbox.open_sandbox_account().account_id
@@ -336,18 +336,18 @@ class Trader:
     #         print(f"\nPay in [{amount}] failed. \nException: {error}\n")
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    config = dotenv_values(".env")
-    TOKEN = config['TINKOFF_TOKEN_SANDBOX']
-    ACCOUNT_ID = config['TINKOFF_SANDBOX_ACCOUNT']  
+#     config = dotenv_values(".env")
+#     TOKEN = config['TINKOFF_TOKEN_SANDBOX']
+#     ACCOUNT_ID = config['TINKOFF_SANDBOX_ACCOUNT']  
 
-    trader = Trader(token=TOKEN, account_id=ACCOUNT_ID, sandbox=True)
+#     trader = Trader(token=TOKEN, account_id=ACCOUNT_ID, sandbox=True)
     
-    trader.account_info(show_active_orders=False)
+#     trader.account_info(show_active_orders=False)
 
-    trader.read_strategy(filename="strategy.xlsx", sheet_name="strategy")
-    trader.show_strategy()
+#     trader.read_strategy(filename="strategy.xlsx", sheet_name="strategy")
+#     trader.show_strategy()
 
     # trader.place_limit_orders()
     # trader.run_feed()

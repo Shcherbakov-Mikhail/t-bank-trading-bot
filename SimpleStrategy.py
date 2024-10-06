@@ -7,6 +7,7 @@ from handler import OrderHandler
 from uuid import uuid4
 from decimal import Decimal
 from datetime import timedelta
+from BlogWorker import BlogWorker
 
 from tinkoff.invest import (
     InstrumentIdType,
@@ -34,6 +35,9 @@ class SimpleStrategy:
         pass
 
     async def market_opened_check(self):
+        pass
+
+    async def instrument_available_check(self):
         pass
 
     # async def instrument_available_check(self):
@@ -81,29 +85,45 @@ class SimpleStrategy:
         blog = asyncio.create_task(
                         self.orders_handler.handle_new_order(
                             order_id=posted_order.order_id,
-                            account_id=self.account_id
+                            account_id=self.account_id,
+                            exec_price=float(exec_price)
                         )
                     )
         
         await blog
 
+    async def print_orders(self):
+        while True:
+            await asyncio.sleep(12)
+            try:
+                orders = (await self.client.get_orders(account_id=self.account_id)).orders
+                print()
+                print(f"Active Orders: {len(orders)}")
+                print()
+            except InvestError as error:
+                print(f'Unaible to get acrive orders! Error:\n{error}')
+                continue
+
 
     async def main_cycle(self):
 
         print(f"Paying in...")
-        await self.client.add_money_to_sandbox_account(self.account_id, amount=100000)
+        await self.client.add_money_to_sandbox_account(self.account_id, amount=5000000)
 
         print(f"Reading data from excel...")
         self.sql_strategy_client.add_orders_from_excel(self.filename, self.sheet_name)
-        print(self.sql_strategy_client.get_strategy())
+        print(f'Initial orders:\n\t{self.sql_strategy_client.get_strategy()}')
 
-        # print(f"Posting initial orders...")
-        # await asyncio.wait([
-        #     asyncio.create_task(self.handle_strat_order(order))
-        #     for order in self.sql_strategy_client.get_strategy()
-        # ])
+        print(f"Posting initial orders...")
 
-    
+        tasks = [asyncio.create_task(self.handle_strat_order(order))
+                 for order in self.sql_strategy_client.get_strategy()
+                ]
+                
+        tasks.append(asyncio.create_task(self.print_orders()))
+        await asyncio.wait(tasks)
+
+        
     async def start(self):
         if self.account_id is None:
             try:

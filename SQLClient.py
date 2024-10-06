@@ -67,6 +67,7 @@ class OrderSQLiteClient:
         self._create_table()
 
     def _create_table(self):
+        self._drop_table()
         self.db_client.execute(
             """
             CREATE TABLE IF NOT EXISTS orders (
@@ -118,6 +119,7 @@ class SimpleStrategySQLiteClient:
         self._create_table()
 
     def _create_table(self):
+        self._drop_table()
         self.db_client.execute(
             """
             CREATE TABLE IF NOT EXISTS simple_strategy (

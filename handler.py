@@ -20,7 +20,7 @@ class OrderHandler():
         self.broker_client : TBankClient = client
         self.sql_orders_client = OrderSQLiteClient()
 
-    async def handle_new_order(self, order_id, account_id):
+    async def handle_new_order(self, order_id, account_id, exec_price):
 
         try:
             order_state = await self.broker_client.get_order_state(
@@ -35,25 +35,28 @@ class OrderHandler():
             order_id=order_id,
             figi=order_state.figi,
             order_direction=str(order_state.direction),
-            price=float(quotation_to_decimal(order_state.total_order_amount)),
+            price=exec_price,
             quantity=order_state.lots_requested,
             status=str(order_state.execution_report_status)
         )
-
-        # print(self.sql_orders_client.get_orders())
 
         print(f'Added order {str(order_state.direction)}')
 
         while order_state.execution_report_status not in FINAL_ORDER_STATUSES:
             await asyncio.sleep(10)
-            order_state = await self.broker_client.get_order_state(
-                order_id=order_id,
-                account_id=account_id
-            )  
-            print(f'Order starus: {str(order_state.execution_report_status)}')
-
+            try:
+                order_state = await self.broker_client.get_order_state(
+                    order_id=order_id,
+                    account_id=account_id
+                )  
+                print(f'Order: {str(order_state.direction.name)} {exec_price} {str(order_state.execution_report_status.name)}', end="")
+                last_price = (await self.broker_client.get_last_prices(figi=[order_state.figi])).last_prices.pop().price
+                print(f' | Last price={float(quotation_to_decimal(last_price))}')
+            except InvestError as error:
+                print(f'Failed to get order {order_id} state. Skipping...')
+        
         self.sql_orders_client.update_order_status(
             order_id=order_id, status=str(order_state.execution_report_status)
         )
 
-        print(f'Added order with status: {str(order_state.execution_report_status)}')
+        print(f'Closed Order: {str(order_state.direction)} {exec_price} {str(order_state.execution_report_status.name)}')
