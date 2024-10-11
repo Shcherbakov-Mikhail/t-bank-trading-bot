@@ -13,8 +13,7 @@ from tinkoff.invest import (
     CandleInterval,
     MoneyValue,
     OrderDirection,
-    OrderType,
-    InstrumentClosePriceRequest
+    OrderType
 )
 from tinkoff.invest.utils import now, decimal_to_quotation, quotation_to_decimal
 from tinkoff.invest.exceptions import InvestError
