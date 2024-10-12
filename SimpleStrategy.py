@@ -21,8 +21,9 @@ class SimpleStrategy:
 
     def __init__(self, client, blogger):
         self.client : TBankClient = client
-        self.active_orders_check_interval = 5
-        self.order_status_check_interval = 10
+        self.active_orders_check_interval = 10
+        self.print_last_price_interval = 10
+        self.order_status_check_interval = 3
         self.token = None
         self.account_id = None
         self.filename = "strategy.xlsx"
@@ -31,17 +32,12 @@ class SimpleStrategy:
         self.orders_handler = OrderHandler(client, blogger, self.order_status_check_interval)
         self.sql_strategy_client = SimpleStrategySQLiteClient()
         self.print_active_orders = True
+        self.print_last_price = True
         
 
     async def stop_loss_check(self):
         # worth implementing it? (it would check portfolio from time to time)
         pass
-
-    async def instrument_available_check(self):
-        pass
-
-    # async def instrument_available_check(self):
-    #     pass
 
     async def handle_strat_order(self, order):
         ticker, percentage, lots = order
@@ -66,9 +62,10 @@ class SimpleStrategy:
         exec_price = (round(exec_price / min_price_increment) * min_price_increment)
 
         ticker_trading_status = await self.client.get_trading_status(figi=figi)
+
         if not (ticker_trading_status.market_order_available_flag and ticker_trading_status.api_trade_available_flag):
             self.blogger.ticker_trading_closed_message(ticker)
-            self.print_active_orders = False
+            # self.print_active_orders = False
             return
 
         try:
@@ -83,10 +80,9 @@ class SimpleStrategy:
                 instrument_id=figi
                 )            
         except InvestError as error:
-            # print(f'Failed to post order: {order}. \nError: {error}')
-            self.blogger.failed_to_post_order_message(order)
-            self.print_active_orders = False
-            return 
+            # self.blogger.failed_to_post_order_message(order)
+            # self.print_active_orders = False
+            return f'failed to post {order}'
         
         handle = asyncio.create_task(
                         self.orders_handler.handle_new_order(
@@ -98,17 +94,15 @@ class SimpleStrategy:
         
         await handle
 
+        return f'posted {order}'
+
     async def print_active_orders(self):
-        if not self.print_active_orders:
-            return
+        # if not self.print_active_orders:
+        #     return
         while True:
-            print(self.print_active_orders)
             await asyncio.sleep(self.active_orders_check_interval)
             try:
                 orders = (await self.client.get_orders(account_id=self.account_id)).orders
-                # print()
-                # print(f"Active Orders: {len(orders)}")
-                # print()
                 self.blogger.active_orders_message(len(orders))
             except InvestError as error:
                 # print(f'Unaible to get acrive orders! Error:\n{error}')
@@ -116,7 +110,27 @@ class SimpleStrategy:
                 continue
 
 
+    async def print_last_price(self, ticker, figi):
+        # if not self.print_last_price:
+        #     return
+        while True:
+            await asyncio.sleep(self.print_last_price_interval)
+            try:
+                last_price = (await self.client.get_last_prices(figi=[figi])).last_prices.pop().price
+                self.blogger.last_price_message(ticker, last_price)
+            except InvestError as error:
+                # print(f'Unaible to get acrive orders! Error:\n{error}')
+                self.blogger.failed_to_get_last_price_message(ticker)
+                continue
+
+
     async def main_cycle(self):
+
+        ticker = 'SBER'
+        figi = await self.client.get_figi_by_ticker(ticker)
+        ticker_close_price = await self.client.get_close_price(figi)
+        last_price = (await self.client.get_last_prices(figi=[figi])).last_prices.pop().price
+        last_price = float(quotation_to_decimal(last_price))
 
         self.blogger.start_trading_message()
 
@@ -126,8 +140,11 @@ class SimpleStrategy:
         print(f"Reading data from excel...")
         self.sql_strategy_client.add_orders_from_excel(self.filename, self.sheet_name)
 
+        self.blogger.close_price_message(ticker, ticker_close_price)
+        self.blogger.last_price_message(ticker, last_price)
+
         # print(f'Initial orders:\n\t{self.sql_strategy_client.get_strategy()}')
-        self.blogger.list_initial_orders_message(self.sql_strategy_client.get_strategy())
+        # self.blogger.list_initial_orders_message(self.sql_strategy_client.get_strategy())
 
         print(f"Posting initial orders...")
         self.blogger.posting_initial_orders_message()
@@ -135,12 +152,29 @@ class SimpleStrategy:
         tasks = [asyncio.create_task(self.handle_strat_order(order))
                  for order in self.sql_strategy_client.get_strategy()
                 ]
+
+        # await asyncio.wait(tasks)
+
+        i = 0
+        for coro in asyncio.as_completed(tasks):
+                result = await coro
+                i += 1
+                print(i)
+                print(result)
                 
-        # tasks.append(asyncio.create_task(self.print_active_orders()))
-        await asyncio.wait(tasks)
+        # print_active_orders_task = asyncio.create_task(self.print_active_orders())
+        # tasks.append(print_active_orders_task)
 
-        print('ended tasks')
+        # print_last_price_task = asyncio.create_task(self.print_last_price(ticker, figi))
+        # tasks.append(print_last_price_task)
 
+        # while True:
+        #     done, pending  = await asyncio.wait(tasks)
+        #     print('DONE:')
+        #     print(done)
+        #     print('PENDING:')
+        #     print(pending)
+        
         self.blogger.close_session_message()
         return
 
