@@ -45,7 +45,7 @@ class OrderHandler():
         )
 
         # self.blogger.posted_order_message(order_id)
-        print(f'Posted order: {order_id}')
+        print(f'Posted order: {str(order_state.direction.name)} for {exec_price}')
 
         while order_state.execution_report_status not in FINAL_ORDER_STATUSES:
             await asyncio.sleep(self.check_interval)
@@ -71,7 +71,7 @@ class OrderHandler():
             order_id=order_id, status=str(order_state.execution_report_status)
         )
 
-        print(f'\nClosed Order: {str(order_state.direction)} {exec_price} {str(order_state.execution_report_status.name)}\n')
+        print(f'\nClosed Order: {str(order_state.direction.name)} {exec_price} {str(order_state.execution_report_status.name)}\n')
         # self.blogger.order_closed_message(
         #     str(order_state.direction),
         #     exec_price,
