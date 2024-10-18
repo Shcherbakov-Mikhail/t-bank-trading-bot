@@ -2,11 +2,14 @@ import asyncio
 
 from TBankClient import TBankClient
 from SQLClient import OrderSQLiteClient
+from datetime import datetime
 
 from tinkoff.invest import OrderExecutionReportStatus
 from tinkoff.invest.exceptions import InvestError
 from tinkoff.invest.utils import quotation_to_decimal
+from decimal import Decimal
 # from Blogger import Blogger
+from Errors import Errors
 
 FINAL_ORDER_STATUSES = [
     OrderExecutionReportStatus.EXECUTION_REPORT_STATUS_CANCELLED,
@@ -23,7 +26,7 @@ class OrderHandler():
         self.blogger = blogger
         self.check_interval = check_interval
 
-    async def handle_new_order(self, order_id, account_id, exec_price):
+    async def handle_new_order(self, order_id, account_id, exec_price, lot_size):
 
         try:
             order_state = await self.broker_client.get_order_state(
@@ -31,9 +34,8 @@ class OrderHandler():
                 account_id=account_id
             )   
         except InvestError as error:
-            # self.blogger.failed_to_post_order_message(order_id)
-            print(f'Failed to post order: {order_id}')
-            return
+            print(f'Failed to handle order: {order_id} at {datetime.now().time()}')
+            return Errors.FAILED_TO_HANDLE_ORDER
         
         self.sql_orders_client.add_order(
             order_id=order_id,
@@ -44,8 +46,7 @@ class OrderHandler():
             status=str(order_state.execution_report_status)
         )
 
-        # self.blogger.posted_order_message(order_id)
-        print(f'Posted order: {str(order_state.direction.name)} for {exec_price}')
+        print(f'Posted order: {str(order_state.direction.name)} for {exec_price} at {datetime.now().time()}')
 
         while order_state.execution_report_status not in FINAL_ORDER_STATUSES:
             await asyncio.sleep(self.check_interval)
@@ -54,26 +55,14 @@ class OrderHandler():
                     order_id=order_id,
                     account_id=account_id
                 )  
-                last_price = (await self.broker_client.get_last_prices(figi=[order_state.figi])).last_prices.pop().price
-                # self.blogger.order_status_message(
-                #     str(order_state.direction.name), 
-                #     exec_price, 
-                #     str(order_state.execution_report_status.name) ,
-                #     float(quotation_to_decimal(last_price))
-                #     )
-                # print(f'Order: { str(order_state.direction.name)} {exec_price} {str(order_state.execution_report_status.name)}'
-                #       f' | Last price={float(quotation_to_decimal(last_price))}')
             except InvestError as error:
                 print(f'Failed to get order {order_id} state. Skipping...')
-                # self.blogger.failed_to_get_order_status_message(order_id)
         
         self.sql_orders_client.update_order_status(
             order_id=order_id, status=str(order_state.execution_report_status)
         )
 
-        print(f'\nClosed Order: {str(order_state.direction.name)} {exec_price} {str(order_state.execution_report_status.name)}\n')
-        # self.blogger.order_closed_message(
-        #     str(order_state.direction),
-        #     exec_price,
-        #     str(order_state.execution_report_status.name)
-        #     )
+        print(f'Closed Order: {str(order_state.direction.name)} {exec_price} '
+              f'for {float(quotation_to_decimal(order_state.executed_order_price))/lot_size} at {datetime.now().time()}\n')
+        
+        return quotation_to_decimal(order_state.executed_order_price) / lot_size

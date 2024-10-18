@@ -2,6 +2,8 @@ import asyncio
 import time, sys
 from uuid import uuid4
 from decimal import Decimal
+from Errors import Errors
+from datetime import datetime
 
 from TBankClient import TBankClient
 from SQLClient import SimpleStrategySQLiteClient
@@ -15,226 +17,223 @@ from tinkoff.invest import (
 )
 from tinkoff.invest.utils import decimal_to_quotation, quotation_to_decimal
 from tinkoff.invest.exceptions import InvestError
-
+    
 
 class SimpleStrategy:
 
     def __init__(self, client, blogger=None):
         self.client : TBankClient = client
-        self.client_check_interval = 10 # 6 requests per minute
-        self.order_status_check_interval = 3 # 40 requests per minute for 1 percentage level (+&-)
-        self.token = None
+        self.sql_strategy_client = SimpleStrategySQLiteClient()
+        self.blogger = blogger
         self.account_id = None
+        self.ticker = None
+        self.figi = None
+        self.close_price = None
+        self.last_price = None
+        self.min_price_increment = None
+        self.lot_size = None
+        self.basic_points = None
+        self.tasks = []
+        self.loss_check_interval = 10 # 6 requests per minute
+        self.order_status_check_interval = 3 # 40 requests per minute for 1 percentage level (+&-)
+        self.stop_loss_percentage = None
         self.filename = "strategy.xlsx"
         self.sheet_name = "strategy"
-        self.blogger = blogger
         self.orders_handler = OrderHandler(client, blogger, self.order_status_check_interval)
-        self.sql_strategy_client = SimpleStrategySQLiteClient()
-        self.print_active_orders = True
-        self.print_last_price = True
         
 
-    # async def stop_loss_check(self, last_price):
-    #     positions = (await self.client.get_portfolio(account_id=self.account_id)).positions
-    #     position = get_position(positions, self.figi)
-    #     if position is None or quotation_to_float(position.quantity) == 0:
-    #         return
-    #     position_price = quotation_to_float(position.average_position_price)
-    #     if last_price <= position_price - position_price * self.config.stop_loss_percent:
-    #         logger.info(f"Stop loss triggered. Last price={last_price} figi={self.figi}")
-    #         try:
-    #             quantity = int(quotation_to_float(position.quantity)) / self.instrument_info.lot
-    #             if not is_quantity_valid(quantity):
-    #                 raise ValueError(f"Invalid quantity for posting an order. quantity={quantity}")
-    #             posted_order = await client.post_order(
-    #                 order_id=str(uuid4()),
-    #                 figi=self.figi,
-    #                 direction=ORDER_DIRECTION_SELL,
-    #                 quantity=int(quantity),
-    #                 order_type=ORDER_TYPE_MARKET,
-    #                 account_id=self.account_id,
-    #             )
-    #         except Exception as e:
-    #             logger.error(f"Failed to post sell order. figi={self.figi}. {e}")
-    #             return
-    #         asyncio.create_task(
-    #             self.stats_handler.handle_new_order(
-    #                 order_id=posted_order.order_id, account_id=self.account_id
-    #             )
-    #         )
-    #     return
+    async def trading_is_available(self):
+        ticker_trading_status = await self.client.get_trading_status(figi=self.figi)
+        if not (ticker_trading_status.market_order_available_flag and ticker_trading_status.api_trade_available_flag):
+            print(f'{self.ticker} trading is closed!')
+            return False
+        return True
 
-    async def handle_strat_order(self, order):
-        ticker, percentage, lots = order
 
-        figi = await self.client.get_figi_by_ticker(ticker)
-
-        ticker_close_price = await self.client.get_close_price(figi)
-        exec_price = Decimal(ticker_close_price * (1 + percentage))
-
-        order_type = OrderType.ORDER_TYPE_LIMIT
-        order_direction = OrderDirection.ORDER_DIRECTION_BUY if percentage < 0 else OrderDirection.ORDER_DIRECTION_SELL
-                    
-        min_price_increment = (
-            await self.client.get_instrument_by(
-                id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI, 
-                id=figi
-            )
-        ).instrument.min_price_increment
-
-        number_digits_after_point = 9 - len(str(min_price_increment.nano)) + 1
-        min_price_increment = quotation_to_decimal(min_price_increment)
-        exec_price = (round(exec_price / min_price_increment) * min_price_increment)
+    async def handle_strat_order(self, order, reverse=False):
         
-        ticker_trading_status = await self.client.get_trading_status(figi=figi)
+        if not reverse:
+            percentage, lots = order
+            
+            order_type = OrderType.ORDER_TYPE_LIMIT
+            order_direction = OrderDirection.ORDER_DIRECTION_BUY if percentage < 0 else OrderDirection.ORDER_DIRECTION_SELL
 
-        # if not (ticker_trading_status.market_order_available_flag and ticker_trading_status.api_trade_available_flag):
-        #     # self.blogger.ticker_trading_closed_message(ticker)
-        #     # self.print_active_orders = False
-        #     print(f'{ticker} trading is closed!')
-        #     return
+            exec_price = Decimal(self.close_price * (1 + percentage))       
+            exec_price = (round(exec_price / self.min_price_increment) * self.min_price_increment)
+            
+        else:
+            exec_price, lots, order_direction = order
+            order_type = OrderType.ORDER_TYPE_LIMIT
+               
+        if not (await self.trading_is_available()):
+            return Errors.TICKER_NOT_AVAILABLE
 
         try:
             posted_order = await self.client.post_order(
-                figi=figi,
+                figi=self.figi,
                 quantity=lots,
                 price=decimal_to_quotation(Decimal(exec_price)),
                 direction=order_direction,
                 account_id=self.account_id,
                 order_type=order_type,
                 order_id=str(uuid4()),
-                instrument_id=figi
+                instrument_id=self.figi
                 )            
         except InvestError as error:
-            # self.blogger.failed_to_post_order_message(order)
-            # self.print_active_orders = False
-            print(f'Failed to post {order}\nError: {error}')
-            return
+            print(f'Failed to post {order} at {datetime.now().time()}')
+            return Errors.FAILED_TO_POST_ORDER
         
         handle = asyncio.create_task(
                         self.orders_handler.handle_new_order(
                             order_id=posted_order.order_id,
                             account_id=self.account_id,
-                            exec_price=float(exec_price)
+                            exec_price=float(exec_price),
+                            lot_size=self.lot_size
                         )
                     )
         
-        await handle
+        actual_exec_price = await handle
+        
+        if actual_exec_price is Errors.FAILED_TO_HANDLE_ORDER:
+            return 
 
-        return order
-
-    # async def print_active_orders(self):
-    #     if not self.print_active_orders:
-    #         return
-    #     while True:
-    #         await asyncio.sleep(self.active_orders_check_interval)
-    #         try:
-    #             orders = (await self.client.get_orders(account_id=self.account_id)).orders
-    #             # self.blogger.active_orders_message(len(orders))
-    #             print(f'Active orders: {len(orders)}')
-    #         except InvestError as error:
-    #             print(f'Failed to get active orders!\nError:\n{error}')
-    #             # self.blogger.failed_to_get_active_orders_message()
-    #             continue
+        return order, reverse, actual_exec_price
 
 
-    # async def print_last_price(self, ticker, figi):
-    #     # if not self.print_last_price:
-    #     #     return
-    #     while True:
-    #         await asyncio.sleep(self.print_last_price_interval)
-    #         try:
-    #             last_price = (await self.client.get_last_prices(figi=[figi])).last_prices.pop().price
-    #             # self.blogger.last_price_message(ticker, last_price)
-    #             print(f'Last price: {last_price}')
-    #         except InvestError as error:
-    #             print(f'Failed to get the last price! Error:\n{error}')
-    #             # self.blogger.failed_to_get_last_price_message(ticker)
-    #             continue
+    async def stop_loss_check(self):
+        await asyncio.sleep(self.loss_check_interval)
+        
+        if not (await self.trading_is_available()):
+            return True, Errors.TICKER_NOT_AVAILABLE
+        
+        self.last_price = float(
+            quotation_to_decimal(
+                (await self.client.get_last_prices(figi=[self.figi]))
+                .last_prices.pop().price
+                )
+            )
+     
+        if self.last_price >= self.close_price * (1 + self.stop_loss_percentage):
+            print(f'Stop loss triggered from above! Last price = {self.last_price}')
+            return True, OrderDirection.ORDER_DIRECTION_BUY
+        elif self.last_price <= self.close_price * (1 - self.stop_loss_percentage):
+            print(f'Stop loss triggered from below! Last price = {self.last_price}')
+            return True, OrderDirection.ORDER_DIRECTION_SELL
+
+        print(f'No stop loss. Last price = {self.last_price}')
+        return False, None
 
 
-    async def main_cycle(self):
+    async def main_cycle(self): 
+        self.ticker = 'SBER'
+        self.stop_loss_percentage = 0.01
+        self.basic_points = 1
+        
+        self.figi = await self.client.get_figi_by_ticker(self.ticker)
+        # self.close_price = await self.client.get_close_price(self.figi) 
+        self.last_price = float(
+            quotation_to_decimal(
+                (await self.client.get_last_prices(figi=[self.figi]))
+                .last_prices.pop().price
+                )
+            )
+        self.close_price = self.last_price # DEBUG
+        self.min_price_increment = quotation_to_decimal(
+            (await self.client.get_instrument_by(
+                id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI,
+                id=self.figi))
+                .instrument.min_price_increment
+            )
+        self.lot_size = (
+                await self.client.get_instrument_by(
+                    id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI, 
+                    id=self.figi
+                    )
+                ).instrument.lot
 
-        ticker = 'SBER'
-        stop_loss_perc = 0.05
-
-        figi = await self.client.get_figi_by_ticker(ticker)
-        ticker_close_price = await self.client.get_close_price(figi)
-        last_price = (await self.client.get_last_prices(figi=[figi])).last_prices.pop().price
-        last_price = float(quotation_to_decimal(last_price))
-
-        # self.blogger.start_trading_message()
-        print('Starting trading')
-
-        print(f"Paying in...")
         await self.client.add_money_to_sandbox_account(self.account_id, amount=5000000)
 
-        print(f"Reading data from excel...")
-        # self.sql_strategy_client.add_orders_from_excel(self.filename, self.sheet_name)
-        # strategies = self.sql_strategy_client.get_strategy()
-
         strategies = [
-            ('SBER', 0.001, 1),
-            ('SBER', -0.001, 1),
+            (0.0005, 1),
+            (-0.0005, 1),
         ]
-
-
-        # self.blogger.close_price_message(ticker, ticker_close_price)
-        print(f'{ticker} close price: {ticker_close_price}')
-        # self.blogger.last_price_message(ticker, last_price)
-        print(f'{ticker} last price: {last_price}')
-
-        # print(f'Initial orders:\n\t{self.sql_strategy_client.get_strategy()}')
-        # self.blogger.list_initial_orders_message(self.sql_strategy_client.get_strategy())
-
-        print(f"Posting initial orders...")
-        # self.blogger.posting_initial_orders_message()
-        tasks = [asyncio.create_task(self.handle_strat_order(order))
-                 for order in strategies
-                ]
-
-        # print_active_orders_task = asyncio.create_task(self.print_active_orders())
-        # tasks.append(print_active_orders_task)
-        # print_last_price_task = asyncio.create_task(self.print_last_price(ticker, figi))
-        # tasks.append(print_last_price_task)
+        self.tasks = [asyncio.create_task(self.handle_strat_order(order))
+                      for order in strategies
+                      ]
+        stop_loss_check_task = asyncio.create_task(self.stop_loss_check())
         
-        while tasks:
+        print(f'{self.ticker} close price: {self.close_price}')
+        print(f'{self.ticker} last price: {self.last_price}\n')
+        print(f'Started at {datetime.now().time()}\n')
+        
+        while self.tasks:
+            done, _ = await asyncio.wait([stop_loss_check_task] + self.tasks, return_when=asyncio.FIRST_COMPLETED)
+            
+            if stop_loss_check_task in done:
+                stop_loss, direction = await stop_loss_check_task
+                done.remove(stop_loss_check_task)
+                if stop_loss:
+                    print("Stop loss triggered!")
+                    for t in self.tasks:
+                        t.cancel()
+                    # TODO: close the positions at stop loss
+                    print("Closing positions!")
+                    if direction is OrderDirection.ORDER_DIRECTION_SELL:
+                        pass
+                    elif direction is OrderDirection.ORDER_DIRECTION_BUY:
+                        pass
+                    else:
+                        pass
+                    return
+                else:
+                    stop_loss_check_task = asyncio.create_task(self.stop_loss_check())
+                    
+            if len(done) > 1:
+                # TODO: multiple orderes triggered during the check interval (how to handle them?)
+                print(f'{len(done)=}')
 
-            for done_task in asyncio.as_completed(tasks):
-                order = await done_task
-                print(f'Completed: {order}')
+            for task in done:
+                result = await task
+                if isinstance(result, Errors):
+                    for t in self.tasks:
+                        t.cancel()
+                    # TODO: close the positions at posting error
+                    print("Closing positions!")
+                    return
+                
+                else:
+                    completed_order, reverse, exec_price = result
+                    self.tasks.remove(task)
+                    
+                    if reverse:
+                        # reverse sell
+                        if completed_order[2] == OrderDirection.ORDER_DIRECTION_SELL:
+                            percentage = strategies[1][0]
+                            lots = strategies[1][1]
+                            new_order = (percentage, lots)
+                        # reverse buy
+                        else:
+                            percentage = strategies[0][0]
+                            lots = strategies[0][1]
+                            new_order = (percentage, lots)
+                    else:
+                        # initial sell
+                        if completed_order[0] > 0:
+                            lots = strategies[1][1]
+                            new_price = float(exec_price - self.min_price_increment * Decimal(self.basic_points))
+                            direction = OrderDirection.ORDER_DIRECTION_BUY
+                            new_order = (new_price, lots, direction)
+                        # initial buy
+                        else:
+                            lots = strategies[0][1]
+                            new_price = float(exec_price + self.min_price_increment * Decimal(self.basic_points))
+                            direction = OrderDirection.ORDER_DIRECTION_SELL
+                            new_order = (new_price, lots, direction)
+                        
+                    reverse = (not reverse)                
+                    new_task = asyncio.create_task(self.handle_strat_order(new_order, reverse))
+                    self.tasks.append(new_task)
 
-
-
-        # while True:
-        #     try:
-        #         done, pending = await asyncio.wait(tasks)
-        #         order_triggered = done.pop().result()
-        #         print(f'First completed: {order_triggered}')
-        #         print(1)
-        #     except InvestError as error:
-        #         print(f'Client error:\n{error}')
-            # await asyncio.sleep(self.client_check_interval)
-
-        # min_price_increment = (
-        #     await self.client.get_instrument_by(
-        #         id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI, 
-        #         id=figi
-        #     )
-        # ).instrument.min_price_increment
-
-        # min_price_increment = quotation_to_decimal(min_price_increment)
-        # minus_bp_price = (round(exec_price / min_price_increment) * min_price_increment)
-
-
-        # minus_bp_order = ()
-        # minus_bp_order_task = asyncio.create_task(self.handle_strat_order(minus_bp_order))
-        # tasks.append(minus_bp_order_task)
-
-        # done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        # print(done.pop().result())
-
-        # self.blogger.close_session_message()
         print('Closing the session!')
 
         
@@ -245,9 +244,9 @@ class SimpleStrategy:
                 accounts = (await self.client.get_accounts()).accounts
                 if len(accounts) != 0:
                     for account in accounts:
-                        print(f"Closing old accounts...")
+                        # print(f"Closing old accounts...")
                         await self.client.close_sandbox_account(account.id)
-                print(f"Opening new account...")
+                # print(f"Opening new account...")
                 self.account_id = (await self.client.open_sandbox_account()).account_id
 
             except InvestError as error:
