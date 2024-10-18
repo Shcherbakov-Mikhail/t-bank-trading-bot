@@ -4,12 +4,12 @@ from datetime import datetime
 
 
 async def post_order(order):
-    await asyncio.sleep(order[2])
+    await asyncio.sleep(0)
     print(f'Posted order: {order} at {datetime.now()}')
     return order
     
 async def handler(order):
-    await asyncio.sleep(5)
+    await asyncio.sleep(order[2])
     print(f'Closed order: {order} at {datetime.now()}')
 
 async def handle_strat_order(order):
@@ -22,41 +22,38 @@ async def monitor_tasks():
     
     strategies = [
             ('SBER', 1, 2),
-            ('SBER', 2, 50),
         ]
+    check_interval = 2
     tasks = [asyncio.create_task(handle_strat_order(order)) for order in strategies]
-    
-    # TODO: add stop loss
-    # check_interval = 2
-    # time_check_task = asyncio.create_task(asyncio.sleep(check_interval))
-    # if completed_task.done():
-    #             print(f'Checking time: {datetime.now()}')
-    #             current_time = datetime.now()
-    #             if current_time.hour == 1 and current_time.minute == 11:
-    #                 print("It's time!")
-    #                 for task in tasks:
-    #                     task.cancel()
-    #                 return
+    time_check_task = asyncio.create_task(asyncio.sleep(check_interval))
     
     print(f'Started at {datetime.now()}')
     while tasks:
-
-        for completed_task in asyncio.as_completed(tasks):
-
-            result = await completed_task
-            print(result)
+        done, _ = await asyncio.wait([time_check_task] + tasks, return_when=asyncio.FIRST_COMPLETED)
+        
+        if time_check_task in done:
+            done.remove(time_check_task)
+            # print(f'Checking time: {datetime.now()}')                
+            if datetime.now().hour == 3 and datetime.now().minute == 0:
+                print("It's time!")
+                for t in tasks:
+                    t.cancel()
+                return
+            else:
+                time_check_task = asyncio.create_task(asyncio.sleep(check_interval))
+                
+        if len(done) > 1:
+            # multiple orderes triggered during the check interval (how to handle them?)
+            print(f'{len(done)=}')
             
-            for task in tasks:
-                if task.done() and task.result() == result:
-                    tasks.remove(task)
-                
-            if result == ('SBER', 1, 2):
-                new_order = ('SBER', 3, 6)
-                print(f'Posting {new_order}')
-                new_task = asyncio.create_task(handle_strat_order(new_order))
-                tasks.append(new_task)
-                
-        # await asyncio.sleep(0.1)
+
+        for task in done:
+            result = await task
+            tasks.remove(task)
+            
+            new_order = ('SBER', -result[1], result[2]+1)
+            new_task = asyncio.create_task(handle_strat_order(new_order))
+            tasks.append(new_task)
 
 
 async def main():

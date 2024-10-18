@@ -21,8 +21,8 @@ class SimpleStrategy:
 
     def __init__(self, client, blogger=None):
         self.client : TBankClient = client
-        self.client_check_interval = 5
-        self.order_status_check_interval = 1
+        self.client_check_interval = 10 # 6 requests per minute
+        self.order_status_check_interval = 3 # 40 requests per minute for 1 percentage level (+&-)
         self.token = None
         self.account_id = None
         self.filename = "strategy.xlsx"
@@ -200,9 +200,9 @@ class SimpleStrategy:
         
         while tasks:
 
-        for done_task in asyncio.as_completed(tasks):
-            order = await done_task
-            print(f'Completed: {order}')
+            for done_task in asyncio.as_completed(tasks):
+                order = await done_task
+                print(f'Completed: {order}')
 
 
 
