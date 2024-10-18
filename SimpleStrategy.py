@@ -94,6 +94,7 @@ class SimpleStrategy:
         
         actual_exec_price = await handle
         
+
         if actual_exec_price is Errors.FAILED_TO_HANDLE_ORDER:
             return 
 
