@@ -1,7 +1,7 @@
 import asyncio
 
 from TBankClient import TBankClient
-from SQLClient import OrderSQLiteClient
+from SQLClient import OrderSQLiteClient, LastPricesSQLiteClient
 from datetime import datetime
 
 from tinkoff.invest import OrderExecutionReportStatus
@@ -20,9 +20,10 @@ FINAL_ORDER_STATUSES = [
 
 class OrderHandler():
 
-    def __init__(self, client, blogger, check_interval):
+    def __init__(self, client, blogger, prices_logger, check_interval):
         self.broker_client : TBankClient = client
         self.sql_orders_client = OrderSQLiteClient()
+        self.prices_logger : LastPricesSQLiteClient = prices_logger
         self.blogger = blogger
         self.check_interval = check_interval
 
@@ -39,11 +40,13 @@ class OrderHandler():
         
         self.sql_orders_client.add_order(
             order_id=order_id,
-            figi=order_state.figi,
+            ticker='SBER',
             order_direction=str(order_state.direction),
             price=exec_price,
             quantity=order_state.lots_requested,
-            status=str(order_state.execution_report_status)
+            status=str(order_state.execution_report_status),
+            exec_price=-1,
+            timestamp=datetime.now().strftime('%F %T.%f')
         )
 
         print(f'Posted order: {str(order_state.direction.name)} for {exec_price} at {datetime.now().time()}')
@@ -51,10 +54,17 @@ class OrderHandler():
         while order_state.execution_report_status not in FINAL_ORDER_STATUSES:
             await asyncio.sleep(self.check_interval)
             try:
-                order_state = await self.broker_client.get_order_state(
-                    order_id=order_id,
-                    account_id=account_id
-                )  
+                # order_state = await self.broker_client.get_order_state(
+                #     order_id=order_id,
+                #     account_id=account_id
+                # )  
+                last_price = float(
+                    quotation_to_decimal(
+                        (await self.broker_client.get_last_prices(figi=[order_state.figi]))
+                        .last_prices.pop().price
+                        )
+                    )
+                self.prices_logger.add_price('SBER', datetime.now().strftime('%F %T.%f'), last_price)
             except InvestError as error:
                 print(f'Failed to get order {order_id} state. Skipping...')
         

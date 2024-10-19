@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+from datetime import datetime
 
 
 class SQLiteClient:
@@ -61,22 +62,26 @@ class SQLiteClient:
     
 
 class OrderSQLiteClient:
-    def __init__(self, db_name = 'trader_stats.db'):
+    def __init__(self, db_name = 'trader_stats.db', debug=False):
         self.db_client = SQLiteClient(db_name)
+        self.debug = debug
         self.db_client.connect()
         self._create_table()
 
     def _create_table(self):
-        self._drop_table()
+        if not self.debug:
+            self._drop_table()
         self.db_client.execute(
             """
             CREATE TABLE IF NOT EXISTS orders (
                 id str PRIMARY KEY,
-                figi str,
+                figi TEXT,
                 direction TEXT,
                 price REAL,
                 quantity INTEGER,
-                status TEXT
+                status TEXT,
+                exec_price REAL,
+                timestamp TEXT
             )
             """
         )
@@ -91,15 +96,17 @@ class OrderSQLiteClient:
     def add_order(
         self,
         order_id: str,
-        figi: str,
+        ticker: str,
         order_direction: str,
         price: float,
         quantity: int,
         status: str,
+        exec_price: float,
+        timestamp: str
     ):
         self.db_client.execute_insert(
-            "INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?)",
-            (order_id, figi, order_direction, price, quantity, status),
+            "INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (order_id, ticker, order_direction, price, quantity, status, exec_price, timestamp),
         )
 
     def get_orders(self):
@@ -109,6 +116,18 @@ class OrderSQLiteClient:
         self.db_client.execute_update(
             "UPDATE orders SET status=? WHERE id=?",
             (status, order_id),
+        )
+
+    def update_order_exec_price(self, order_id: str, exec_price: float):
+        self.db_client.execute_update(
+            "UPDATE orders SET exec_price=? WHERE id=?",
+            (exec_price, order_id),
+        )
+
+    def update_order_timestamp(self, order_id: str, timestamp: str):
+        self.db_client.execute_update(
+            "UPDATE orders SET timestamp=? WHERE id=?",
+            (timestamp, order_id),
         )
 
 
@@ -172,3 +191,45 @@ class SimpleStrategySQLiteClient:
         Returns list of tuples
         """
         return self.db_client.execute_select("SELECT * FROM simple_strategy")
+    
+
+class LastPricesSQLiteClient:
+    def __init__(self, db_name = 'trader_stats.db', debug=False):
+        self.db_client = SQLiteClient(db_name)
+        self.debug = debug
+        self.db_client.connect()
+        self._create_table()
+
+    def _create_table(self):
+        if not self.debug:
+            self._drop_table()
+        self.db_client.execute(
+            """
+            CREATE TABLE IF NOT EXISTS last_prices (
+                ticker STR,
+                timestamp TEXT,
+                price REAL
+            )
+            """
+        )
+
+    def _drop_table(self):
+        self.db_client.execute(
+            """
+            DROP TABLE IF EXISTS last_prices
+            """
+        )
+
+    def add_price(
+        self,
+        ticker: str,
+        timestamp: str,
+        price: float
+    ):
+        self.db_client.execute_insert(
+            "INSERT INTO last_prices VALUES (?, ?, ?)",
+            (ticker, timestamp, price),
+        )
+
+    def get_prices(self):
+        return self.db_client.execute_select("SELECT * FROM last_prices")

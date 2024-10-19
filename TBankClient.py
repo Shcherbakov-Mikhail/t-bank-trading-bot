@@ -14,8 +14,10 @@ from tinkoff.invest import (
     MoneyValue,
     OrderDirection,
     OrderType,
-    InstrumentClosePriceRequest
+    InstrumentClosePriceRequest,
+    
 )
+
 from tinkoff.invest.utils import now, decimal_to_quotation, quotation_to_decimal
 from tinkoff.invest.exceptions import InvestError
 
@@ -72,7 +74,6 @@ class TBankClient:
     async def ticker_by_figi(self, figi):
         return (await self.client.instruments.find_instrument(query=figi)).instruments[0].ticker
     
-
     async def get_close_price(self, figi):
         instrument = (await self.client.instruments.find_instrument(query=figi)).instruments.pop().uid
         price = (await self.client.market_data.get_close_prices(instruments=[InstrumentClosePriceRequest(instrument)])).close_prices.pop().price

@@ -6,7 +6,7 @@ from Errors import Errors
 from datetime import datetime
 
 from TBankClient import TBankClient
-from SQLClient import SimpleStrategySQLiteClient
+from SQLClient import SimpleStrategySQLiteClient, LastPricesSQLiteClient
 from Handler import OrderHandler
 # from Blogger import Blogger
 
@@ -24,6 +24,7 @@ class SimpleStrategy:
     def __init__(self, client, blogger=None):
         self.client : TBankClient = client
         self.sql_strategy_client = SimpleStrategySQLiteClient()
+        self.sql_last_prices_client = LastPricesSQLiteClient()
         self.blogger = blogger
         self.account_id = None
         self.ticker = None
@@ -39,12 +40,12 @@ class SimpleStrategy:
         self.stop_loss_percentage = None
         self.filename = "strategy.xlsx"
         self.sheet_name = "strategy"
-        self.orders_handler = OrderHandler(client, blogger, self.order_status_check_interval)
+        self.orders_handler = OrderHandler(client, blogger, self.sql_last_prices_client, self.order_status_check_interval)
         
 
     async def trading_is_available(self):
         ticker_trading_status = await self.client.get_trading_status(figi=self.figi)
-        if not (ticker_trading_status.market_order_available_flag and ticker_trading_status.api_trade_available_flag):
+        if not (ticker_trading_status.limit_order_available_flag and ticker_trading_status.api_trade_available_flag):
             print(f'{self.ticker} trading is closed!')
             return False
         return True
@@ -88,12 +89,11 @@ class SimpleStrategy:
                             order_id=posted_order.order_id,
                             account_id=self.account_id,
                             exec_price=float(exec_price),
-                            lot_size=self.lot_size
+                            lot_size=self.lot_size,
                         )
                     )
         
         actual_exec_price = await handle
-        
 
         if actual_exec_price is Errors.FAILED_TO_HANDLE_ORDER:
             return 
@@ -113,6 +113,8 @@ class SimpleStrategy:
                 .last_prices.pop().price
                 )
             )
+        
+        self.sql_last_prices_client.add_price(self.ticker, datetime.now().strftime('%F %T.%f'), self.last_price)
      
         if self.last_price >= self.close_price * (1 + self.stop_loss_percentage):
             print(f'Stop loss triggered from above! Last price = {self.last_price}')
@@ -154,6 +156,8 @@ class SimpleStrategy:
 
         await self.client.add_money_to_sandbox_account(self.account_id, amount=5000000)
 
+        self.sql_last_prices_client.add_price(self.ticker, datetime.now().strftime('%F %T.%f'), self.last_price)
+
         strategies = [
             (0.0005, 1),
             (-0.0005, 1),
@@ -169,6 +173,8 @@ class SimpleStrategy:
         
         while self.tasks:
             done, _ = await asyncio.wait([stop_loss_check_task] + self.tasks, return_when=asyncio.FIRST_COMPLETED)
+            # print(done)
+            # sys.exit()
             
             if stop_loss_check_task in done:
                 stop_loss, direction = await stop_loss_check_task
