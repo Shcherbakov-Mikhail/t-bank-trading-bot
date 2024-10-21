@@ -112,23 +112,26 @@ class OrderSQLiteClient:
     def get_orders(self):
         return self.db_client.execute_select("SELECT * FROM orders")
 
-    def update_order_status(self, order_id: str, status: str):
+    def update_order_status(self, order_id: str, status: str, timestamp: str):
         self.db_client.execute_update(
             "UPDATE orders SET status=? WHERE id=?",
             (status, order_id),
         )
-
-    def update_order_exec_price(self, order_id: str, exec_price: float):
-        self.db_client.execute_update(
-            "UPDATE orders SET exec_price=? WHERE id=?",
-            (exec_price, order_id),
-        )
-
-    def update_order_timestamp(self, order_id: str, timestamp: str):
         self.db_client.execute_update(
             "UPDATE orders SET timestamp=? WHERE id=?",
             (timestamp, order_id),
         )
+
+    def update_order_exec_price(self, order_id: str, exec_price: float, timestamp: str):
+        self.db_client.execute_update(
+            "UPDATE orders SET exec_price=? WHERE id=?",
+            (exec_price, order_id),
+        )
+        self.db_client.execute_update(
+            "UPDATE orders SET timestamp=? WHERE id=?",
+            (timestamp, order_id),
+        )
+        
 
 
 class SimpleStrategySQLiteClient:

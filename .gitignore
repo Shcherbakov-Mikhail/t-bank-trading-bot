@@ -6,3 +6,5 @@ __pycache__/
 settings.xlsx
 strategy.xlsx
 trader_stats.db
+*.txt
+*.png

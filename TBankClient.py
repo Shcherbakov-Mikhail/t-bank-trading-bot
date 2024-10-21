@@ -115,7 +115,7 @@ class TBankClient:
         amount_mv = MoneyValue(units=amount_quot.units, nano=amount_quot.nano, currency=currency)
         balance_quot = (await self.client.sandbox.sandbox_pay_in(account_id=account_id, amount=amount_mv)).balance
         balance = float(quotation_to_decimal(balance_quot))
-        print(f'Added: {amount}. Current balance: {balance}')
+        # print(f'Added: {amount}. Current balance: {balance}')
 
     async def get_last_prices(self, figi):
         return await self.client.market_data.get_last_prices(figi=figi)

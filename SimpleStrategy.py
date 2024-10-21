@@ -37,6 +37,11 @@ class SimpleStrategy:
         self.tasks = []
         self.loss_check_interval = 10 # 6 requests per minute
         self.order_status_check_interval = 3 # 40 requests per minute for 1 percentage level (+&-)
+        self.balance_lots = 0
+        self.balance_rub = 0
+        self.total_revenue = 0
+        self.total_commission = 0
+        self.total_profit = 0
         self.stop_loss_percentage = None
         self.filename = "strategy.xlsx"
         self.sheet_name = "strategy"
@@ -81,7 +86,7 @@ class SimpleStrategy:
                 instrument_id=self.figi
                 )            
         except InvestError as error:
-            print(f'Failed to post {order} at {datetime.now().time()}')
+            print(f'Failed to post {order}')
             return Errors.FAILED_TO_POST_ORDER
         
         handle = asyncio.create_task(
@@ -93,10 +98,27 @@ class SimpleStrategy:
                         )
                     )
         
-        actual_exec_price = await handle
+        actual_exec_price, commission = await handle
+        self.total_commission += commission
 
         if actual_exec_price is Errors.FAILED_TO_HANDLE_ORDER:
             return 
+        
+        if order_direction is OrderDirection.ORDER_DIRECTION_BUY:
+            self.balance_rub -= actual_exec_price * self.lot_size
+            self.balance_lots += lots
+        else:
+            self.balance_rub += actual_exec_price * self.lot_size
+            self.balance_lots -= lots
+                
+        if reverse:
+            prev_revenue = self.total_revenue
+            prosition_revenue = self.balance_rub - prev_revenue
+            self.total_revenue = self.balance_rub
+            self.total_profit = self.total_revenue - self.total_commission
+            print(f'Position revenue = {prosition_revenue:.2f}. Total: revenue = {self.total_revenue:.2f},' 
+                   'commission = {self.total_commission:.2f}, profit = {self.total_profit:.2f}')
+        print(f'Balance: rub={self.balance_rub:.2f}, lots={self.balance_lots}')
 
         return order, reverse, actual_exec_price
 
@@ -123,7 +145,7 @@ class SimpleStrategy:
             print(f'Stop loss triggered from below! Last price = {self.last_price}')
             return True, OrderDirection.ORDER_DIRECTION_SELL
 
-        print(f'No stop loss. Last price = {self.last_price}')
+        # print(f'Last price = {self.last_price}')
         return False, None
 
 
@@ -140,7 +162,7 @@ class SimpleStrategy:
                 .last_prices.pop().price
                 )
             )
-        self.close_price = self.last_price # DEBUG
+        self.close_price = self.last_price # DEBUG !!!!!!!
         self.min_price_increment = quotation_to_decimal(
             (await self.client.get_instrument_by(
                 id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_FIGI,
@@ -159,8 +181,8 @@ class SimpleStrategy:
         self.sql_last_prices_client.add_price(self.ticker, datetime.now().strftime('%F %T.%f'), self.last_price)
 
         strategies = [
-            (0.0005, 1),
-            (-0.0005, 1),
+            (0.0025, 1),
+            (-0.0025, 1),
         ]
         self.tasks = [asyncio.create_task(self.handle_strat_order(order))
                       for order in strategies
@@ -171,10 +193,14 @@ class SimpleStrategy:
         print(f'{self.ticker} last price: {self.last_price}\n')
         print(f'Started at {datetime.now().time()}\n')
         
+
+        upper_price = self.close_price * (1 + strategies[0][0])
+        lower_price = self.close_price * (1 + strategies[1][0])
+        with open("init.txt", 'w') as file:
+            file.write(f'{self.close_price} {upper_price} {lower_price}')
+        
         while self.tasks:
             done, _ = await asyncio.wait([stop_loss_check_task] + self.tasks, return_when=asyncio.FIRST_COMPLETED)
-            # print(done)
-            # sys.exit()
             
             if stop_loss_check_task in done:
                 stop_loss, direction = await stop_loss_check_task
@@ -211,7 +237,7 @@ class SimpleStrategy:
                 else:
                     completed_order, reverse, exec_price = result
                     self.tasks.remove(task)
-                    
+                    # TODO: make possible to handle more than one layer at a time
                     if reverse:
                         # reverse sell
                         if completed_order[2] == OrderDirection.ORDER_DIRECTION_SELL:
